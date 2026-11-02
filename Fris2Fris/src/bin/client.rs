@@ -2,8 +2,6 @@ use std::io::ErrorKind;
 use std::net::UdpSocket;
 use std::time::{Duration, Instant};
 use rand::RngExt;
-use rand::Rng;
-
 #[path = "../protocol.rs"]
 mod protocol;
 
@@ -56,11 +54,9 @@ fn main() {
     let mut rng = rand::rng();
     let mut pool: Vec<u8> = (0..=(protocol::NumberOfChunks-1) as u8).collect();
 
-    println!("meho1");
     loop {
 
         if !pool.is_empty() {
-            println!("meho2");
             let random_index = rng.random_range(0..pool.len());
             let selectedChunk = pool.swap_remove(random_index);
 
