@@ -3,8 +3,7 @@ use rand::{SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::Rng;
 
-#[path = "../protocol.rs"]
-mod protocol;
+use Fris2Fris::protocol;
 
 fn generatePseudorandomChunks(chunks:& mut [[u8; protocol::ChunkSize]; protocol::NumberOfChunks]){
     for i in 0..protocol::NumberOfChunks {

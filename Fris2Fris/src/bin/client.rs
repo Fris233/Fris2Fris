@@ -1,23 +1,23 @@
 use std::io::ErrorKind;
-use std::net::UdpSocket;
+use std::net::{SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
 use rand::RngExt;
-#[path = "../protocol.rs"]
-mod protocol;
+
+use Fris2Fris::protocol;
 
 fn main() {
-    let message:& mut [u8; protocol::PacketSize] = & mut [0; protocol::PacketSize];
-    let data:& mut [[u8; protocol::ChunkSize]; protocol::NumberOfChunks] = & mut [[0; protocol::ChunkSize]; protocol::NumberOfChunks];
-    let bitMap:& mut [u8; protocol::NumberOfChunks/8] = & mut [0; protocol::NumberOfChunks/8];
-    protocol::addHeaders(message, protocol::MessageType::HANDSHAKE, 0, 1, 0);
-
+    let serverAddr: SocketAddr = "127.0.0.1:9000".parse().unwrap();
     let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
 
-    match socket.send_to(message, "127.0.0.1:9000") {
+    let message:& mut [u8; protocol::PacketSize] = & mut [0; protocol::PacketSize];
+
+    /* region Handshake */
+    protocol::addHeaders(message, protocol::MessageType::HANDSHAKE, 0, 1, 0);
+    socket.set_read_timeout(Some(Duration::from_millis(protocol::Timeout as u64))).unwrap();
+    match socket.send_to(message, serverAddr) {
         _ => {}
     }
     println!("Sent Handshake!");
-    socket.set_read_timeout(Some(Duration::from_millis(protocol::Timeout as u64))).unwrap();
 
     loop {
         let mut buffer = [0; protocol::PacketSize];
@@ -35,11 +35,8 @@ fn main() {
                 }
             }
 
-            Err(error) if matches!(
-                error.kind(),
-                ErrorKind::WouldBlock | ErrorKind::TimedOut
-            ) => {
-                match socket.send_to(message, "127.0.0.1:9000") {
+            Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                match socket.send_to(message, serverAddr) {
                     _ => {}
                 }
                 println!("Sent Handshake Again!");
@@ -50,12 +47,16 @@ fn main() {
             }
         }
     }
+    /* endregion */
+
+    //TODO: Handle concurrent chunk requesting and receiving
+    let data:& mut [[u8; protocol::ChunkSize]; protocol::NumberOfChunks] = & mut [[0; protocol::ChunkSize]; protocol::NumberOfChunks];
+    let bitMap:& mut [u8; protocol::NumberOfChunks/8] = & mut [0; protocol::NumberOfChunks/8];
 
     let mut rng = rand::rng();
     let mut pool: Vec<u8> = (0..=(protocol::NumberOfChunks-1) as u8).collect();
 
     loop {
-
         if !pool.is_empty() {
             let random_index = rng.random_range(0..pool.len());
             let selectedChunk = pool.swap_remove(random_index);
@@ -66,7 +67,9 @@ fn main() {
             protocol::addHeaders(message, protocol::MessageType::CHUNK_REQUEST,
                                  selectedChunk, 1, 0);
 
-            socket.send_to(message, "127.0.0.1:9000");
+            match socket.send_to(message, serverAddr) {
+                _ => {}
+            }
 
             loop {
                 let mut buffer = [0; protocol::PacketSize];
@@ -92,11 +95,8 @@ fn main() {
                         }
                     }
 
-                    Err(error) if matches!(
-                error.kind(),
-                ErrorKind::WouldBlock | ErrorKind::TimedOut
-            ) => {
-                        match socket.send_to(message, "127.0.0.1:9000") {
+                    Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                        match socket.send_to(message, serverAddr) {
                             _ => {}
                         }
                         println!("Sent Request for chunk {} Again!", selectedChunk);
