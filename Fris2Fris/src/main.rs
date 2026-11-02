@@ -1,4 +1,7 @@
+use rand::RngExt;
+
+pub mod protocol;
 
 fn main(){
-    println!("Fris2Fris2Fris2");
+    println!("{:b}", 0b00000000000);
 }
