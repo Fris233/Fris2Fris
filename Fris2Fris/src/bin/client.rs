@@ -9,7 +9,7 @@ fn main() {
     let serverAddr: SocketAddr = "127.0.0.1:9000".parse().unwrap();
     let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
 
-    let message:& mut [u8; protocol::PacketSize] = & mut [0; protocol::PacketSize];
+    let message:& mut [u8; protocol::PacketSize as usize] = & mut [0; protocol::PacketSize as usize];
 
     /* region Handshake */
     protocol::addHeaders(message, protocol::MessageType::HANDSHAKE, 0, 1, 0);
@@ -20,7 +20,7 @@ fn main() {
     println!("Sent Handshake!");
 
     loop {
-        let mut buffer = [0; protocol::PacketSize];
+        let mut buffer = [0; protocol::PacketSize as usize];
         match socket.recv_from(&mut buffer) {
             Ok((size, sender)) => {
                 if buffer[2] == protocol::MessageType::HANDSHAKE_RESPONSE as u8{
@@ -50,8 +50,8 @@ fn main() {
     /* endregion */
 
     //TODO: Handle concurrent chunk requesting and receiving
-    let data:& mut [[u8; protocol::ChunkSize]; protocol::NumberOfChunks] = & mut [[0; protocol::ChunkSize]; protocol::NumberOfChunks];
-    let bitMap:& mut [u8; protocol::NumberOfChunks/8] = & mut [0; protocol::NumberOfChunks/8];
+    let data:& mut [[u8; protocol::ChunkSize as usize]; protocol::NumberOfChunks as usize] = & mut [[0; protocol::ChunkSize as usize]; protocol::NumberOfChunks as usize];
+    let bitMap:& mut [u8; protocol::NumberOfChunks as usize/8] = & mut [0; protocol::NumberOfChunks as usize/8];
 
     let mut rng = rand::rng();
     let mut pool: Vec<u8> = (0..=(protocol::NumberOfChunks-1) as u8).collect();
@@ -72,7 +72,7 @@ fn main() {
             }
 
             loop {
-                let mut buffer = [0; protocol::PacketSize];
+                let mut buffer = [0; protocol::PacketSize as usize];
                 match socket.recv_from(&mut buffer) {
                     Ok((size, sender)) => {
                         if buffer[2] == protocol::MessageType::CHUNK_RESPONSE as u8

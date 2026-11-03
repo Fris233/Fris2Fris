@@ -5,7 +5,7 @@ use rand_chacha::rand_core::Rng;
 
 use Fris2Fris::protocol;
 
-fn generatePseudorandomChunks(chunks:& mut [[u8; protocol::ChunkSize]; protocol::NumberOfChunks]){
+fn generatePseudorandomChunks(chunks:& mut [[u8; protocol::ChunkSize as usize]; protocol::NumberOfChunks as usize]){
     for i in 0..protocol::NumberOfChunks {
         let mut rng = ChaCha8Rng::seed_from_u64(233*i as u64);
         rng.fill_bytes(&mut chunks[i as usize]);
@@ -13,12 +13,12 @@ fn generatePseudorandomChunks(chunks:& mut [[u8; protocol::ChunkSize]; protocol:
 }
 
 fn main() {
-    let chunks:& mut [[u8; protocol::ChunkSize]; protocol::NumberOfChunks] = & mut [[0; protocol::ChunkSize]; protocol::NumberOfChunks];
+    let chunks:& mut [[u8; protocol::ChunkSize as usize]; protocol::NumberOfChunks as usize] = & mut [[0; protocol::ChunkSize as usize]; protocol::NumberOfChunks as usize];
     generatePseudorandomChunks(chunks);
     let listener = UdpSocket::bind("127.0.0.1:9000").unwrap();
     println!("Listening on {}", listener.local_addr().unwrap());
     loop {
-        let mut buffer = [0; protocol::PacketSize];
+        let mut buffer = [0; protocol::PacketSize as usize];
         let (size, sender) = listener.recv_from(&mut buffer).unwrap();
         if size > 0 {
             println!("Received from {}", sender);
@@ -30,7 +30,7 @@ fn main() {
             if buffer[2] == protocol::MessageType::HANDSHAKE as u8{
                 println!("Handshake");
 
-                let message:& mut [u8; protocol::PacketSize] = & mut [0; protocol::PacketSize];
+                let message:& mut [u8; protocol::PacketSize as usize] = & mut [0; protocol::PacketSize as usize];
                 protocol::addHeaders(message, protocol::MessageType::HANDSHAKE_RESPONSE,
                                      0, 0, 0);
                 listener.send_to(message, sender).unwrap();
@@ -40,7 +40,7 @@ fn main() {
 
                 let selectedChunk = buffer[3];
                 
-                let message:& mut [u8; protocol::PacketSize] = & mut [0; protocol::PacketSize];
+                let message:& mut [u8; protocol::PacketSize as usize] = & mut [0; protocol::PacketSize as usize];
                 protocol::addHeaders(message, protocol::MessageType::CHUNK_RESPONSE,
                                      selectedChunk, 0, protocol::ChunkSize as u16);
                 protocol::addData(message, chunks[selectedChunk as usize], protocol::ChunkSize as u16);
