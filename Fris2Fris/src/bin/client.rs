@@ -8,6 +8,7 @@ use Fris2Fris::protocol;
 fn main() {
     let serverAddr: SocketAddr = "127.0.0.1:9000".parse().unwrap();
     let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
+    let mut peerId:u8;
 
     let message:& mut [u8; protocol::PacketSize as usize] = & mut [0; protocol::PacketSize as usize];
 
@@ -30,6 +31,8 @@ fn main() {
                             print!("{} ", buffer[it]);
                         }
                         println!();
+                        peerId = buffer[16];
+                        println!("Peer ID: {}", peerId);
                         break;
                     }
                 }
@@ -44,6 +47,30 @@ fn main() {
 
             Err(error) => {
                 println!("Error");
+            }
+        }
+    }
+    /* endregion */
+
+    /* region AwaitStart */
+    loop {
+        let mut buffer = [0; protocol::PacketSize as usize];
+        match socket.recv_from(&mut buffer) {
+            Ok((size, sender)) => {
+                if size > 0{
+                    if buffer[2] == protocol::MessageType::START_SIGNAL as u8 {
+                        println!("Received Start Signal from {}", sender);
+                        for it in 0..64 {
+                            print!("{} ", buffer[it]);
+                        }
+                        println!();
+                        break;
+                    }
+                }
+            }
+
+            Err(error) => {
+                println!("Error, No Start Signal Received!");
             }
         }
     }
@@ -65,7 +92,7 @@ fn main() {
 
             message.fill(0);
             protocol::addHeaders(message, protocol::MessageType::CHUNK_REQUEST,
-                                 selectedChunk, 1, 0);
+                                 selectedChunk, peerId, 0);
 
             match socket.send_to(message, serverAddr) {
                 _ => {}
