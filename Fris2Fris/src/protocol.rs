@@ -8,6 +8,8 @@ pub enum MessageType {
     CHUNK_RESPONSE = 21,
     START_SIGNAL = 30,
     KEEP_ALIVE = 40,
+    PEER_HEARTBEAT = 50,
+    PEER_HEARTBEAT_RESPONSE = 51,
     FRIS= 233,
 }
 
@@ -27,7 +29,7 @@ pub fn addHeaders(message:& mut [u8; PacketSize as usize], message_type:MessageT
     message[5..7].copy_from_slice(payloadLength.to_be_bytes().as_ref());
 }
 
-pub fn addData(message:& mut [u8; PacketSize as usize], data:[u8; ChunkSize as usize]){
+pub fn addData(message:& mut [u8; PacketSize as usize], data: &[u8; ChunkSize as usize]){
     let payloadLength = ((message[5] as u16)<<8) | message[6] as u16;
     message[16..(16+payloadLength) as usize].copy_from_slice(data[0..payloadLength as usize].as_ref());
 }

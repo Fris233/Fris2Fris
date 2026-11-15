@@ -30,7 +30,7 @@ fn socket_to_bytes(addr: SocketAddr) -> Option<[u8; 6]> {
 fn main() {
     let chunks:& mut [[u8; protocol::ChunkSize as usize]; protocol::NumberOfChunks as usize] = & mut [[0; protocol::ChunkSize as usize]; protocol::NumberOfChunks as usize];
     generatePseudorandomChunks(chunks);
-    let mut peers: HashMap<u8, [u8; 6]> = HashMap::new();
+    let mut peers: HashMap<u8, [u8; 6]> = HashMap::new(); //TODO: Handle peers disconnecting
     let mut currPeerID:u8 = 0;
     let listener = UdpSocket::bind("127.0.0.1:9000").unwrap();
     println!("Listening on {}", listener.local_addr().unwrap());
@@ -51,7 +51,7 @@ fn main() {
                 protocol::addHeaders(message, protocol::MessageType::HANDSHAKE_RESPONSE,
                                      0, 0, 1);
                 currPeerID += 1;
-                addData(message, [currPeerID; protocol::ChunkSize as usize]);
+                addData(message, &[currPeerID; protocol::ChunkSize as usize]);
                 listener.send_to(message, sender).unwrap();
                 println!("Sent Response!");
 
@@ -67,18 +67,30 @@ fn main() {
                     peers.insert(currPeerID, senderAddr);
                 }
                 if peers.len() == 4{
-                    for (_, peer) in peers.iter() {
+                    for (id, peer) in peers.iter() {
                         let message:& mut [u8; protocol::PacketSize as usize] = & mut [0; protocol::PacketSize as usize];
+                        let data: &mut [u8; protocol::ChunkSize as usize] = & mut [0; protocol::ChunkSize as usize];
+                        for (i, (id, addr)) in peers.iter().enumerate() {
+                            data[i*7] = *id;
+                            data[i*7+1..i*7+7].copy_from_slice(addr[0..6].as_ref());
+                        }
                         protocol::addHeaders(message, protocol::MessageType::START_SIGNAL,
-                                             0, 0, 0);
+                                             0, 0, peers.len() as u16 * 7);
+                        protocol::addData(message, data);
                         listener.send_to(message, SocketAddr::new(IpAddr::V4(Ipv4Addr::new(peer[0], peer[1], peer[2], peer[3])), ((peer[4] as u16)<<8) | peer[5] as u16)).unwrap();
-                        println!("Sent Response!");
+                        println!("Sent Start Signal to peer {}!", id);
                     }
                 }
                 if currPeerID > 4{
                     let message:& mut [u8; protocol::PacketSize as usize] = & mut [0; protocol::PacketSize as usize];
+                    let data: &mut [u8; protocol::ChunkSize as usize] = & mut [0; protocol::ChunkSize as usize];
+                    for (i, (id, addr)) in peers.iter().enumerate() {
+                        data[i*7] = *id;
+                        data[i*7+1..i*7+7].copy_from_slice(addr[0..6].as_ref());
+                    }
                     protocol::addHeaders(message, protocol::MessageType::START_SIGNAL,
-                                         0, currPeerID, 0);
+                                         0, currPeerID, peers.len() as u16 * 7);
+                    protocol::addData(message, data);
                     listener.send_to(message, sender).unwrap();
                     println!("Sent Response!");
                 }
@@ -90,7 +102,7 @@ fn main() {
                 let message:& mut [u8; protocol::PacketSize as usize] = & mut [0; protocol::PacketSize as usize];
                 protocol::addHeaders(message, protocol::MessageType::CHUNK_RESPONSE,
                                      selectedChunk, 0, protocol::ChunkSize);
-                addData(message, chunks[selectedChunk as usize]);
+                addData(message, &chunks[selectedChunk as usize]);
                 listener.send_to(message, sender).unwrap();
                 println!("Sent Response!");  
             }
