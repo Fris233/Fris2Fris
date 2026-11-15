@@ -7,7 +7,7 @@ use rand_chacha::ChaCha8Rng;
 use rand_chacha::rand_core::Rng;
 
 use Fris2Fris::protocol;
-use Fris2Fris::protocol::addData;
+use Fris2Fris::protocol::{addData, ProtocolID, ProtocolVersion};
 
 fn generatePseudorandomChunks(chunks:& mut [[u8; protocol::ChunkSize as usize]; protocol::NumberOfChunks as usize]){
     for i in 0..protocol::NumberOfChunks {
@@ -38,22 +38,21 @@ fn main() {
         let mut buffer = [0; protocol::PacketSize as usize];
         let (size, sender) = listener.recv_from(&mut buffer).unwrap();
         if size > 0 {
-            println!("Received from {}", sender);
+            if(buffer[0] != ProtocolID || buffer[1] != ProtocolVersion) {continue;}
             for it in 0..32 {
                 print!("{} ", buffer[it]);
             }
             println!();
 
             if buffer[2] == protocol::MessageType::HANDSHAKE as u8{
-                println!("Handshake");
 
                 let message:& mut [u8; protocol::PacketSize as usize] = & mut [0; protocol::PacketSize as usize];
                 protocol::addHeaders(message, protocol::MessageType::HANDSHAKE_RESPONSE,
                                      0, 0, 1);
-                currPeerID += 1;
+                currPeerID += 1; //TODO: If the handshake response is lost, peer id will still be incremented (should be fixed with the keep_alive if we decide to do that)
                 addData(message, &[currPeerID; protocol::ChunkSize as usize]);
                 listener.send_to(message, sender).unwrap();
-                println!("Sent Response!");
+                println!("Sent Handshake response to peer {}!", currPeerID);
 
                 let mut isFound:bool = false;
                 let senderAddr = socket_to_bytes(sender).unwrap();
@@ -89,14 +88,12 @@ fn main() {
                         data[i*7+1..i*7+7].copy_from_slice(addr[0..6].as_ref());
                     }
                     protocol::addHeaders(message, protocol::MessageType::START_SIGNAL,
-                                         0, currPeerID, peers.len() as u16 * 7);
+                                         0, 0, peers.len() as u16 * 7);
                     protocol::addData(message, data);
                     listener.send_to(message, sender).unwrap();
-                    println!("Sent Response!");
+                    println!("Sent Start Signal to peer {}!", currPeerID);
                 }
             } else if buffer[2] == protocol::MessageType::CHUNK_REQUEST as u8 {
-                println!("ChunkRequest");
-
                 let selectedChunk = buffer[3];
                 
                 let message:& mut [u8; protocol::PacketSize as usize] = & mut [0; protocol::PacketSize as usize];
@@ -104,7 +101,7 @@ fn main() {
                                      selectedChunk, 0, protocol::ChunkSize);
                 addData(message, &chunks[selectedChunk as usize]);
                 listener.send_to(message, sender).unwrap();
-                println!("Sent Response!");  
+                println!("Sent Chunk {} to peer {}!", selectedChunk, buffer[4]);
             }
         }
     }

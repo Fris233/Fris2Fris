@@ -13,8 +13,8 @@ pub enum MessageType {
     FRIS= 233,
 }
 
-const ProtocolID:u8 = 233;
-const ProtocolVersion:u8 = 001;
+pub const ProtocolID:u8 = 233;
+pub const ProtocolVersion:u8 = 002;
 pub const Timeout:u16 = 500;
 pub const PacketSize:u16 = 1200;
 pub const ChunkSize:u16 = 1184;
