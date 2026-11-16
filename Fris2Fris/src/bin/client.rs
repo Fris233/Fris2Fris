@@ -165,7 +165,14 @@ fn main() {
                                         lastSentHeartbeat: Instant::now()
                                     }));
                                     println!("Added peer {} to peers list!", peer_id);
-                                    //TODO: Measure RTT for that peer
+
+                                    let mut message = vec![0u8; protocol::HeaderSize];
+                                    protocol::CreateMessage(&mut message, protocol::MessageType::PEER_HEARTBEAT, 0, capturedPeerId, 0, &mut vec![]);
+
+                                    match thread_socket.send_to(&*message, sender) {
+                                        _ => {}
+                                    }
+                                    println!("Sent Heartbeat to peer {}!", peer_id);
                                 }
                             }
 
@@ -285,18 +292,16 @@ fn main() {
     {
         let mut message = vec![0u8; protocol::HeaderSize];
         protocol::CreateMessage(&mut message, protocol::MessageType::PEER_HEARTBEAT, 0, peerId, 0, &mut vec![]);
-        {
-            let mut guard_peers = peers.lock().unwrap();
-            let mut peer_vec = std::mem::take(&mut *guard_peers).into_vec();
-            for Reverse(peer) in peer_vec.iter_mut() {
-                peer.lastSentHeartbeat = Instant::now();
-
-                match socket.send_to(&*message, peer.addr) {
-                    _ => {}
-                }
-                println!("Sent Heartbeat to peer {}!", peer.id);
+        let mut peersSnapshot: Vec<Peer> = {
+            let guard_peers = peers.lock().unwrap();
+            guard_peers.iter().map(|Reverse(p)| *p).collect()
+        };
+        for peer in peersSnapshot.iter_mut() {
+            peer.lastSentHeartbeat = Instant::now();
+            match socket.send_to(&*message, peer.addr) {
+                _ => {}
             }
-            *guard_peers = BinaryHeap::from(peer_vec);
+            println!("Sent Heartbeat to peer {}!", peer.id);
         }
     }
     /* endregion */
