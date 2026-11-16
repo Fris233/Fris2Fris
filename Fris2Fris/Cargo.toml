@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 rand = "0.10.3"
 rand_chacha = "0.10.0"
+ratelimit = "2.0.0"
