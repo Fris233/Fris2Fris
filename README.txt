@@ -1,6 +1,6 @@
 # Fris2Fris
 
-A prebuilt version for windows is in the releases section (a zip folder containing both client.exe and server.exe)
+A prebuilt version for windows is in the releases section (a zip folder containing both client.exe and server.exe and batch script that runs the base case)
 
 Steps to run:
   1- Install rust (make sure by running 'cargo --version' in your terminal)
