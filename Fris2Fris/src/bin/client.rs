@@ -1,10 +1,10 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
-use std::io::ErrorKind;
+use std::io::{Error, ErrorKind};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
-use std::thread;
+use std::{io, thread};
 use std::time::{Duration, Instant};
 use rand::RngExt;
 
@@ -146,10 +146,15 @@ fn main() {
     let capturedPeerId = peerId;
     let listener = thread::spawn(move || {
         let message:& mut [u8; protocol::PacketSize as usize] = & mut [0; protocol::PacketSize as usize];
+
         loop {
             let buffer = &mut [0; protocol::PacketSize as usize];
-            let mut guard_socket = thread_socket.lock().unwrap();
-            match guard_socket.recv_from(buffer) {
+            let mut state: io::Result<(usize, SocketAddr)> = Err(Error::new(ErrorKind::Other, ""));
+            {
+                let mut guard_socket = thread_socket.lock().unwrap();
+                state = guard_socket.recv_from(buffer);
+            }
+            match state {
                 Ok((size, sender)) => {
                     if size > 0 {
                         if(buffer[0] != ProtocolID || buffer[1] != ProtocolVersion) {continue;}
@@ -181,10 +186,13 @@ fn main() {
                             data[0..protocol::NumberOfChunks as usize/8].copy_from_slice(guard_chunkBitMap[0..protocol::NumberOfChunks as usize/8].as_ref());
                             protocol::addData(message, data);
 
-                            match guard_socket.send_to(message, sender) {
-                                _ => {}
+                            {
+                                let mut guard_socket = thread_socket.lock().unwrap();
+                                match guard_socket.send_to(message, sender) {
+                                    _ => {}
+                                }
+                                println!("Sent Heartbeat_Response to peer {}!", peer_id);
                             }
-                            println!("Sent Heartbeat_Response to peer {}!", peer_id);
                             continue;
                         }
 
@@ -209,8 +217,12 @@ fn main() {
                             protocol::addHeaders(message, protocol::MessageType::CHUNK_RESPONSE,
                                                  chunkNumber, capturedPeerId, protocol::ChunkSize);
                             addData(message, &thread_data.lock().unwrap()[chunkNumber as usize]);
-                            match guard_socket.send_to(message, sender) {
-                                _ => {}
+
+                            {
+                                let mut guard_socket = thread_socket.lock().unwrap();
+                                match guard_socket.send_to(message, sender) {
+                                    _ => {}
+                                }
                             }
                             //println!("Sent Chunk {} to peer {}!", chunkNumber, buffer[4]);
                             thread_chunksUploaded.fetch_add(1, Ordering::SeqCst);
@@ -222,6 +234,9 @@ fn main() {
                             let mut guard_chunkBitMap = thread_chunkBitMap.lock().unwrap();
                             if(HaveChunk(&*guard_chunkBitMap, chunkNumber)) {
                                 //println!("Ignored duplicate chunk {} from peer {}", chunkNumber, buffer[4]);
+                                if(buffer[4] == 0) {
+                                    thread_requestingFromServer.store(false, Ordering::SeqCst);
+                                }
                                 thread_duplicatesReceived.fetch_add(1, Ordering::SeqCst);
                                 continue;
                             }
@@ -257,7 +272,7 @@ fn main() {
                             }
 
                             let mut guard_peers = thread_peers.lock().unwrap();
-                            AdvertiseChunks(&*guard_chunkBitMap, &*guard_peers, capturedPeerId, &*guard_socket);
+                            AdvertiseChunks(&*guard_chunkBitMap, &*guard_peers, capturedPeerId, &*thread_socket.lock().unwrap());
 
                             continue;
                         }
@@ -292,6 +307,7 @@ fn main() {
         let mut peer_vec = std::mem::take(&mut *guard_peers).into_vec();
         for Reverse(peer) in peer_vec.iter_mut() {
             peer.lastSentHeartbeat = Instant::now();
+
             match guard_socket.send_to(message, peer.addr) {
                 _ => {}
             }
