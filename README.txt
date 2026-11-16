@@ -13,3 +13,7 @@ Steps to run:
   5- You will now have executable files in your target/release/ folder for both server and client.
   6- run the server and at least 4 clients.
   7- Watch the chunks fly!
+
+
+Video Showcase:
+https://drive.google.com/drive/folders/1BGz3fkXRPdqToM01s_hZA3Mx5bBVQTpt?usp=sharing
