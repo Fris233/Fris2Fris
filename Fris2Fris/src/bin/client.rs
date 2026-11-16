@@ -3,7 +3,7 @@ use std::collections::BinaryHeap;
 use std::io::{Error, ErrorKind};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU8, Ordering};
 use std::{io, thread};
 use std::time::{Duration, Instant};
 use rand::RngExt;
@@ -57,7 +57,8 @@ fn main() {
 
     let mut requestingFromServer: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     let thread_requestingFromServer = Arc::clone(&requestingFromServer);
-    let mut chunkRequestedFromServer: u8 = 0;
+    let chunkRequestedFromServer = Arc::new(AtomicU8::new(0));
+    let thread_chunkRequestedFromServer = Arc::clone(&chunkRequestedFromServer);
 
     let timeSinceLastRequest: &mut [Instant; protocol::NumberOfChunks as usize] = &mut [Instant::now() - Duration::from_millis(protocol::Timeout as u64); protocol::NumberOfChunks as usize];
 
@@ -227,7 +228,7 @@ fn main() {
                             let mut guard_chunkBitMap = thread_chunkBitMap.lock().unwrap();
                             if(HaveChunk(&*guard_chunkBitMap, chunkNumber)) {
                                 //println!("Ignored duplicate chunk {} from peer {}", chunkNumber, buffer[4]);
-                                if(buffer[4] == 0 && chunkNumber == chunkRequestedFromServer) {
+                                if(buffer[4] == 0 && chunkNumber == thread_chunkRequestedFromServer.load(Ordering::SeqCst)) {
                                     thread_requestingFromServer.store(false, Ordering::SeqCst);
                                 }
                                 thread_duplicatesReceived.fetch_add(1, Ordering::SeqCst);
@@ -328,8 +329,7 @@ fn main() {
 
         if rarestChunk.0 == true {
             //TODO: Finished getting all chunks, will probably send some signal to the server here?
-            println!("Finished Getting all chunks!\nStats:\nRequests Sent to server: {}\nRequests Sent to peers: {}\nChunks Uploaded: {}\n\nDuplicates Received: {}\nChunks received from Server: {}\nTime Spent: {} ms\n",
-                     requestsSentToServer, requestsSentToPeers, chunksUploaded.load(Ordering::SeqCst), duplicatesReceived.load(Ordering::SeqCst), chunksFromServer.load(Ordering::SeqCst), startTime.elapsed().as_millis());
+            let timeTaken = startTime.elapsed().as_millis();
 
             println!("Data:");
             let guard_data = data.lock().unwrap();
@@ -342,12 +342,15 @@ fn main() {
             }
             println!();
 
+            println!("Finished Getting all chunks!\nStats:\nRequests Sent to server: {}\nRequests Sent to peers: {}\nChunks Uploaded: {}\n\nDuplicates Received: {}\nChunks received from Server: {}\nTime Spent: {} ms\n",
+                     requestsSentToServer, requestsSentToPeers, chunksUploaded.load(Ordering::SeqCst), duplicatesReceived.load(Ordering::SeqCst), chunksFromServer.load(Ordering::SeqCst), timeTaken);
+
             break;
         }
 
         if rarestChunk.1.is_none() {
             if(requestingFromServer.load(Ordering::SeqCst)) {
-                if(timeSinceLastRequest[chunkRequestedFromServer as usize].elapsed().as_millis() > protocol::Timeout as u128) {
+                if(timeSinceLastRequest[chunkRequestedFromServer.load(Ordering::SeqCst) as usize].elapsed().as_millis() > protocol::Timeout as u128) {
                     requestingFromServer.store(false, Ordering::SeqCst);
                     continue;
                 }
@@ -372,7 +375,7 @@ fn main() {
                 Ok(_) => {
                     timeSinceLastRequest[chunkNumber as usize] = Instant::now();
                     requestingFromServer.store(true, Ordering::SeqCst);
-                    chunkRequestedFromServer = chunkNumber;
+                    chunkRequestedFromServer.store(chunkNumber, Ordering::SeqCst);
                     requestsSentToServer += 1;
                 }
                 Err(_) => {}
