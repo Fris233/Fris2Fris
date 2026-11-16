@@ -32,6 +32,17 @@ fn main() {
 
     let chunks:& mut [[u8; protocol::ChunkSize as usize]; protocol::NumberOfChunks as usize] = & mut [[0; protocol::ChunkSize as usize]; protocol::NumberOfChunks as usize];
     generatePseudorandomChunks(chunks);
+
+    println!("Data:");
+    for (i, chunk) in chunks.iter().enumerate() {
+        print!("Chunk {}: ", i);
+        for i in 0..16 {
+            print!("{} ", chunk[i]);
+        }
+        println!();
+    }
+    println!();
+
     let mut peers: HashMap<u8, [u8; 6]> = HashMap::new(); //TODO: Handle peers disconnecting
     let mut currPeerID:u8 = 0;
     let listener = UdpSocket::bind("127.0.0.1:9000").unwrap();

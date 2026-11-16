@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::{io, thread};
 use std::time::{Duration, Instant};
 use rand::RngExt;
-
+use rand::seq::SliceRandom;
 use Fris2Fris::protocol;
 use Fris2Fris::protocol::{addData, MessageType, ProtocolID, ProtocolVersion};
 
@@ -38,7 +38,7 @@ fn main() {
 
     /* region Definitions */
     let serverAddr: SocketAddr = SERVER_ADDR.parse().unwrap();
-    let socket = Arc::new(Mutex::new(UdpSocket::bind("0.0.0.0:0").unwrap()));
+    let socket = Arc::new(UdpSocket::bind("0.0.0.0:0").unwrap());
     let thread_socket = Arc::clone(&socket);
 
     let mut peerId: u8 = 0;
@@ -52,13 +52,12 @@ fn main() {
     let chunkBitMap: Arc<Mutex<[u8; protocol::NumberOfChunks as usize/8]>> = Arc::new(Mutex::new([0; protocol::NumberOfChunks as usize/8]));
     let thread_chunkBitMap = Arc::clone(&chunkBitMap);
 
-    let mut rng = rand::rng();
     let mut pool_vec: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new((0..=(protocol::NumberOfChunks-1) as u8).collect()));
     let thread_pool_vec = Arc::clone(&pool_vec);
 
     let mut requestingFromServer: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
-    let mut chunkRequestedFromServer: u8 = 0;
     let thread_requestingFromServer = Arc::clone(&requestingFromServer);
+    let mut chunkRequestedFromServer: u8 = 0;
 
     let timeSinceLastRequest: &mut [Instant; protocol::NumberOfChunks as usize] = &mut [Instant::now() - Duration::from_millis(protocol::Timeout as u64); protocol::NumberOfChunks as usize];
 
@@ -67,9 +66,8 @@ fn main() {
     /* region Handshake */
     protocol::addHeaders(message, protocol::MessageType::HANDSHAKE, 0, 1, 0);
     {
-        let guard_socket = socket.lock().unwrap();
-        guard_socket.set_read_timeout(Some(Duration::from_millis(protocol::Timeout as u64))).unwrap();
-        match guard_socket.send_to(message, serverAddr) {
+        socket.set_read_timeout(Some(Duration::from_millis(protocol::Timeout as u64))).unwrap();
+        match socket.send_to(message, serverAddr) {
             _ => {}
         }
         println!("Sent Handshake!");
@@ -77,8 +75,7 @@ fn main() {
 
     loop {
         let mut buffer = [0; protocol::PacketSize as usize];
-        let guard_socket = socket.lock().unwrap();
-        match guard_socket.recv_from(&mut buffer) {
+        match socket.recv_from(&mut buffer) {
             Ok((size, sender)) => {
                 if(buffer[0] != ProtocolID || buffer[1] != ProtocolVersion) {continue;}
                 if buffer[2] == protocol::MessageType::HANDSHAKE_RESPONSE as u8{
@@ -91,7 +88,7 @@ fn main() {
                 }
             }
             Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
-                match guard_socket.send_to(message, serverAddr) {
+                match socket.send_to(message, serverAddr) {
                     _ => {}
                 }
                 println!("Sent Handshake Again!");
@@ -104,8 +101,7 @@ fn main() {
     /* region AwaitStart */
     loop {
         let buffer = &mut [0; protocol::PacketSize as usize];
-        let guard_socket = socket.lock().unwrap();
-        match guard_socket.recv_from(buffer) {
+        match socket.recv_from(buffer) {
             Ok((size, sender)) => {
                 if size > 0 {
                     if(buffer[0] != ProtocolID || buffer[1] != ProtocolVersion) {continue;}
@@ -151,8 +147,7 @@ fn main() {
             let buffer = &mut [0; protocol::PacketSize as usize];
             let mut state: io::Result<(usize, SocketAddr)> = Err(Error::new(ErrorKind::Other, ""));
             {
-                let mut guard_socket = thread_socket.lock().unwrap();
-                state = guard_socket.recv_from(buffer);
+                state = thread_socket.recv_from(buffer);
             }
             match state {
                 Ok((size, sender)) => {
@@ -187,8 +182,7 @@ fn main() {
                             protocol::addData(message, data);
 
                             {
-                                let mut guard_socket = thread_socket.lock().unwrap();
-                                match guard_socket.send_to(message, sender) {
+                                match thread_socket.send_to(message, sender) {
                                     _ => {}
                                 }
                                 println!("Sent Heartbeat_Response to peer {}!", peer_id);
@@ -219,8 +213,7 @@ fn main() {
                             addData(message, &thread_data.lock().unwrap()[chunkNumber as usize]);
 
                             {
-                                let mut guard_socket = thread_socket.lock().unwrap();
-                                match guard_socket.send_to(message, sender) {
+                                match thread_socket.send_to(message, sender) {
                                     _ => {}
                                 }
                             }
@@ -234,7 +227,7 @@ fn main() {
                             let mut guard_chunkBitMap = thread_chunkBitMap.lock().unwrap();
                             if(HaveChunk(&*guard_chunkBitMap, chunkNumber)) {
                                 //println!("Ignored duplicate chunk {} from peer {}", chunkNumber, buffer[4]);
-                                if(buffer[4] == 0) {
+                                if(buffer[4] == 0 && chunkNumber == chunkRequestedFromServer) {
                                     thread_requestingFromServer.store(false, Ordering::SeqCst);
                                 }
                                 thread_duplicatesReceived.fetch_add(1, Ordering::SeqCst);
@@ -272,7 +265,7 @@ fn main() {
                             }
 
                             let mut guard_peers = thread_peers.lock().unwrap();
-                            AdvertiseChunks(&*guard_chunkBitMap, &*guard_peers, capturedPeerId, &*thread_socket.lock().unwrap());
+                            AdvertiseChunks(&*guard_chunkBitMap, &*guard_peers, capturedPeerId, &thread_socket);
 
                             continue;
                         }
@@ -302,13 +295,12 @@ fn main() {
     message.fill(0);
     protocol::addHeaders(message, MessageType::PEER_HEARTBEAT, 0, peerId, 0);
     {
-        let guard_socket = socket.lock().unwrap();
         let mut guard_peers = peers.lock().unwrap();
         let mut peer_vec = std::mem::take(&mut *guard_peers).into_vec();
         for Reverse(peer) in peer_vec.iter_mut() {
             peer.lastSentHeartbeat = Instant::now();
 
-            match guard_socket.send_to(message, peer.addr) {
+            match socket.send_to(message, peer.addr) {
                 _ => {}
             }
             println!("Sent Heartbeat to peer {}!", peer.id);
@@ -316,6 +308,11 @@ fn main() {
         *guard_peers = BinaryHeap::from(peer_vec);
     }
     /* endregion */
+
+    {
+        let mut guard_pool_vec = pool_vec.lock().unwrap();
+        guard_pool_vec.shuffle(&mut rand::rng());
+    }
 
     /* region Requesting and Receiving Chunks */
     loop {
@@ -331,53 +328,51 @@ fn main() {
 
         if rarestChunk.0 == true {
             //TODO: Finished getting all chunks, will probably send some signal to the server here?
-            println!("Finished Getting all chunks!\nStats:\nRequests Sent to server: {}\nRequests Sent to peers: {}\nChunks Uploaded: {}\n\nDuplicates Received: {}\nChunks received from Server: {}\nTime Spent: {} ms",
+            println!("Finished Getting all chunks!\nStats:\nRequests Sent to server: {}\nRequests Sent to peers: {}\nChunks Uploaded: {}\n\nDuplicates Received: {}\nChunks received from Server: {}\nTime Spent: {} ms\n",
                      requestsSentToServer, requestsSentToPeers, chunksUploaded.load(Ordering::SeqCst), duplicatesReceived.load(Ordering::SeqCst), chunksFromServer.load(Ordering::SeqCst), startTime.elapsed().as_millis());
+
+            println!("Data:");
+            let guard_data = data.lock().unwrap();
+            for (i, chunk) in guard_data.iter().enumerate() {
+                print!("Chunk {}: ", i);
+                for i in 0..16 {
+                    print!("{} ", chunk[i]);
+                }
+                println!();
+            }
+            println!();
+
             break;
         }
 
-        if(rarestChunk.1.is_none()) {
-            if requestingFromServer.load(Ordering::SeqCst) {
-                if timeSinceLastRequest[chunkRequestedFromServer as usize].elapsed().as_millis() > protocol::Timeout as u128 {
-                    message.fill(0);
-                    protocol::addHeaders(message, protocol::MessageType::CHUNK_REQUEST,
-                                         chunkRequestedFromServer, peerId, 0);
-
-                    let guard_socket = socket.lock().unwrap();
-                    match guard_socket.send_to(message, SERVER_ADDR) {
-                        Ok(_) => {
-                            //requestingFromServer.store(true, Ordering::SeqCst);
-                            timeSinceLastRequest[chunkRequestedFromServer as usize] = Instant::now();
-                            //println!("Resent Request for Chunk {} from server", chunkRequestedFromServer);
-                            requestsSentToServer += 1;
-                        }
-                        Err(_) => {}
-                    }
+        if rarestChunk.1.is_none() {
+            if(requestingFromServer.load(Ordering::SeqCst)) {
+                if(timeSinceLastRequest[chunkRequestedFromServer as usize].elapsed().as_millis() > protocol::Timeout as u128) {
+                    requestingFromServer.store(false, Ordering::SeqCst);
+                    continue;
                 }
+                thread::sleep(Duration::from_millis(5));
+                continue;
+            }
+            let mut chunkNumber: u8 = 0;
+            {
+                let mut guard_pool_vec = pool_vec.lock().unwrap();
+                if guard_pool_vec.is_empty() { continue; }
+                chunkNumber = *guard_pool_vec.last().unwrap();
+            }
+
+            if timeSinceLastRequest[chunkNumber as usize].elapsed().as_millis() < protocol::Timeout as u128 {
                 continue;
             }
 
-            let mut chunkNumber: u8 = 0;
-            {
-                let guard_pool_vec = pool_vec.lock().unwrap();
-                if(guard_pool_vec.is_empty()) {continue;}
-                let index = rng.random_range(0..guard_pool_vec.len());
-                chunkNumber = guard_pool_vec[index];
-            }
-
-            if timeSinceLastRequest[chunkNumber as usize].elapsed().as_millis() < protocol::Timeout as u128 {continue;}
-
             message.fill(0);
-            protocol::addHeaders(message, protocol::MessageType::CHUNK_REQUEST,
-                                 chunkNumber, peerId, 0);
+            protocol::addHeaders(message, protocol::MessageType::CHUNK_REQUEST, chunkNumber, peerId, 0);
 
-            let guard_socket = socket.lock().unwrap();
-            match guard_socket.send_to(message, SERVER_ADDR) {
+            match socket.send_to(message, SERVER_ADDR) {
                 Ok(_) => {
+                    timeSinceLastRequest[chunkNumber as usize] = Instant::now();
                     requestingFromServer.store(true, Ordering::SeqCst);
                     chunkRequestedFromServer = chunkNumber;
-                    timeSinceLastRequest[chunkNumber as usize] = Instant::now();
-                    //println!("Requested Chunk {} from server", chunkNumber);
                     requestsSentToServer += 1;
                 }
                 Err(_) => {}
@@ -390,8 +385,7 @@ fn main() {
         protocol::addHeaders(message, protocol::MessageType::CHUNK_REQUEST,
                              chunk.1, peerId, 0);
 
-        let guard_socket = socket.lock().unwrap();
-        match guard_socket.send_to(message, chunk.2.addr) {
+        match socket.send_to(message, chunk.2.addr) {
             Ok(_) => {
                 //println!("Requested Chunk {} from peer {}", chunk.1, chunk.2.id);
                 requestsSentToPeers += 1;
@@ -433,7 +427,7 @@ fn GetRarestChunk(chunkBitMap: &[u8; protocol::NumberOfChunks as usize/8], peers
 
 fn HaveChunk(chunkBitMap: &[u8; protocol::NumberOfChunks as usize/8], chunkNumber: u8) -> bool {(chunkBitMap[chunkNumber as usize / 8] & (1u8 << (chunkNumber % 8))) != 0}
 
-fn AdvertiseChunks(chunkBitMap: &[u8; protocol::NumberOfChunks as usize/8], peers: &BinaryHeap<Reverse<Peer>>, peerId: u8, socket: &UdpSocket) {
+fn AdvertiseChunks(chunkBitMap: &[u8; protocol::NumberOfChunks as usize/8], peers: &BinaryHeap<Reverse<Peer>>, peerId: u8, socket: &Arc<UdpSocket>) {
     let message:& mut [u8; protocol::PacketSize as usize] = & mut [0; protocol::PacketSize as usize];
     protocol::addHeaders(message, MessageType::CHUNK_BITMAP, 0, peerId, protocol::NumberOfChunks/8);
 
