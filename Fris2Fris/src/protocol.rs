@@ -6,6 +6,7 @@ pub enum MessageType {
     HANDSHAKE_RESPONSE = 11,
     CHUNK_REQUEST = 20,
     CHUNK_RESPONSE = 21,
+    CHUNK_BITMAP = 22,
     START_SIGNAL = 30,
     KEEP_ALIVE = 40,
     PEER_HEARTBEAT = 50,

@@ -28,6 +28,8 @@ fn socket_to_bytes(addr: SocketAddr) -> Option<[u8; 6]> {
 }
 
 fn main() {
+    let mut numberOfChunksSent: u16 = 0;
+
     let chunks:& mut [[u8; protocol::ChunkSize as usize]; protocol::NumberOfChunks as usize] = & mut [[0; protocol::ChunkSize as usize]; protocol::NumberOfChunks as usize];
     generatePseudorandomChunks(chunks);
     let mut peers: HashMap<u8, [u8; 6]> = HashMap::new(); //TODO: Handle peers disconnecting
@@ -39,10 +41,6 @@ fn main() {
         let (size, sender) = listener.recv_from(&mut buffer).unwrap();
         if size > 0 {
             if(buffer[0] != ProtocolID || buffer[1] != ProtocolVersion) {continue;}
-            for it in 0..32 {
-                print!("{} ", buffer[it]);
-            }
-            println!();
 
             if buffer[2] == protocol::MessageType::HANDSHAKE as u8{
 
@@ -101,7 +99,8 @@ fn main() {
                                      selectedChunk, 0, protocol::ChunkSize);
                 addData(message, &chunks[selectedChunk as usize]);
                 listener.send_to(message, sender).unwrap();
-                println!("Sent Chunk {} to peer {}!", selectedChunk, buffer[4]);
+                numberOfChunksSent += 1;
+                println!("Sent Chunk {} to peer {}! Server has now sent a total of {} chunks", selectedChunk, buffer[4], numberOfChunksSent);
             }
         }
     }
